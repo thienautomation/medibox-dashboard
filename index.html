@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hộp Thuốc Thông Minh</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&display=swap');
+
+  /* ═══════════════════ DESIGN TOKENS ═══════════════════ */
+  :root {
+    --blue:      #1a6fc4;
+    --blue-lt:   #e8f2fc;
+    --green:     #1a9e5c;
+    --green-lt:  #e6f7ef;
+    --red:       #d63031;
+    --red-lt:    #fdecea;
+    --orange:    #e67e22;
+    --orange-lt: #fef3e2;
+    --yellow:    #f39c12;
+    --yellow-lt: #fef9e7;
+    --radius:    16px;
+  }
+
+  /* ── LIGHT THEME ── */
+  [data-theme="light"] {
+    --bg:        #edf2f7;
+    --surface:   #ffffff;
+    --surface2:  #f7f8fa;
+    --border:    #dde3ec;
+    --text:      #1a202c;
+    --text-muted:#4a5568;
+    --shadow:    0 2px 12px rgba(0,0,0,.09);
+    --header-bg: #1a6fc4;
+    --header-fg: #ffffff;
+  }
+
+  /* ── DARK THEME ── */
+  [data-theme="dark"] {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --surface2:  #232635;
+    --border:    #2e3347;
+    --text:      #e8eaf0;
+    --text-muted:#8892a4;
+    --shadow:    0 2px 16px rgba(0,0,0,.4);
+    --header-bg: #111420;
+    --header-fg: #e8eaf0;
+    --blue-lt:   #1a2a3d;
+    --green-lt:  #0e2319;
+    --red-lt:    #2d1214;
+    --orange-lt: #2d1e0a;
+    --yellow-lt: #2a2106;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Be Vietnam Pro', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 18px;
+    transition: background .3s, color .3s;
+  }
+
+  /* ═══════════════════ HEADER ═══════════════════ */
+  header {
+    background: var(--header-bg);
+    color: var(--header-fg);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.2rem; font-weight: 800; line-height: 1.2; flex: 1; min-width: 160px; }
+  header h1 span { display: block; font-size: .8rem; font-weight: 400; opacity: .8; margin-top: 2px; }
+
+  .header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* Theme Toggle Button */
+  #theme-btn {
+    background: rgba(255,255,255,.15);
+    border: 1.5px solid rgba(255,255,255,.25);
+    border-radius: 10px;
+    color: var(--header-fg);
+    font-size: .85rem;
+    font-weight: 700;
+    padding: 7px 13px;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: background .2s, transform .1s;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  #theme-btn:hover   { background: rgba(255,255,255,.25); }
+  #theme-btn:active  { transform: scale(.95); }
+
+  #conn-badge {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.15);
+    border-radius: 30px; padding: 6px 14px;
+    font-size: .8rem; font-weight: 600; white-space: nowrap;
+  }
+  #conn-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #ffd700; flex-shrink: 0;
+  }
+  #conn-dot.online     { background: #2ecc71; animation: pulse-green 1.4s infinite; }
+  #conn-dot.offline    { background: #e74c3c; }
+  #conn-dot.connecting { background: #ffd700; animation: pulse-yellow 1s infinite; }
+
+  @keyframes pulse-green  { 0%,100%{box-shadow:0 0 0 0 rgba(46,204,113,0)} 70%{box-shadow:0 0 0 8px rgba(46,204,113,.5)} }
+  @keyframes pulse-yellow { 0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,0)}  70%{box-shadow:0 0 0 8px rgba(255,215,0,.5)} }
+
+  /* ═══════════════════ LAYOUT ═══════════════════ */
+  main { max-width: 960px; margin: 0 auto; padding: 20px 16px 40px; }
+
+  /* ═══════════════════ BANNERS ═══════════════════ */
+  /* SOS */
+  #sos-banner {
+    display: none;
+    background: var(--red);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    font-size: 1.4rem;
+    font-weight: 800;
+    text-align: center;
+    animation: blink-bg .8s infinite alternate;
+  }
+  @keyframes blink-bg { from{background:#d63031} to{background:#ff7675} }
+  #sos-banner p { font-size: .95rem; font-weight: 500; margin-top: 6px; opacity: .9; }
+
+  /* DHT ERROR — cảm biến hỏng */
+  #dht-error-banner {
+    display: none;
+    background: var(--orange);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 14px 20px;
+    margin-bottom: 12px;
+    font-weight: 700;
+    text-align: center;
+    font-size: .95rem;
+  }
+
+  /* ── MỚI: DHT WARNING BANNER — nhiệt/ẩm vượt ngưỡng ── */
+  #dht-warn-banner {
+    display: none;
+    background: var(--yellow);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    font-size: 1rem;
+    font-weight: 700;
+    text-align: center;
+    animation: warn-pulse .9s infinite alternate;
+    position: relative;
+  }
+  @keyframes warn-pulse { from{background:#f39c12} to{background:#e67e22} }
+  #dht-warn-banner .warn-title {
+    font-size: 1.15rem; font-weight: 800; display: flex; align-items: center;
+    justify-content: center; gap: 8px; margin-bottom: 6px;
+  }
+  #dht-warn-banner .warn-detail {
+    font-size: .9rem; opacity: .95; margin-bottom: 10px; font-weight: 500;
+  }
+  #dht-warn-banner .warn-action {
+    font-size: .9rem; background: rgba(255,255,255,.25);
+    border-radius: 10px; padding: 8px 14px; display: inline-block;
+    font-weight: 700; margin-top: 2px; border: 2px solid rgba(255,255,255,.4);
+  }
+  #dht-warn-banner .warn-rfid-note {
+    margin-top: 10px; font-size: .85rem; opacity: .9;
+    background: rgba(0,0,0,.12); border-radius: 8px; padding: 6px 12px;
+    display: inline-block;
+  }
+
+  /* GRID */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 580px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* CARD */
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: background .3s, box-shadow .3s;
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    transition: background .3s, border-color .3s;
+  }
+  .card-head .icon {
+    font-size: 1.4rem; line-height: 1;
+    background: var(--blue-lt); border-radius: 10px;
+    padding: 6px 8px;
+    transition: background .3s;
+  }
+  .card-head h2 { font-size: .95rem; font-weight: 700; }
+  .card-body { padding: 16px 18px 18px; }
+
+  /* SENSOR */
+  .sensor-row { display: flex; gap: 16px; }
+  .sensor-item {
+    flex: 1; text-align: center;
+    background: var(--surface2); border-radius: 12px; padding: 14px 8px;
+    transition: background .3s;
+  }
+  .sensor-item .val { font-size: 2.4rem; font-weight: 800; color: var(--blue); line-height: 1; }
+  .sensor-item .unit { font-size: .85rem; color: var(--text-muted); margin-top: 4px; }
+  .sensor-item.warn      { background: var(--red-lt); }
+  .sensor-item.warn .val { color: var(--red); }
+  .sensor-item.dht-err   { background: var(--orange-lt); }
+  .sensor-item.dht-err .val { color: var(--orange); }
+
+  /* DHT WARN inline (bên trong card sensor) */
+  #dht-warn-msg {
+    display: none;
+    color: var(--red);
+    font-size: .85rem;
+    margin-top: 10px;
+    font-weight: 600;
+    background: var(--red-lt);
+    border-radius: 8px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--red);
+  }
+
+  /* STATUS */
+  .status-big {
+    font-size: 1.2rem; font-weight: 800;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0 4px;
+  }
+  .status-big .dot { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green  { background: var(--green); }
+  .dot-orange { background: var(--orange); }
+  .dot-red    { background: var(--red); }
+
+  .status-time { font-size: .82rem; color: var(--text-muted); margin-top: 4px; }
+
+  /* BUTTONS */
+  .action-btns { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    flex: 1; min-width: 110px;
+    padding: 13px 10px;
+    border: none; border-radius: 12px;
+    font-family: inherit; font-size: .95rem; font-weight: 700;
+    cursor: pointer; transition: transform .12s, box-shadow .12s, background .2s;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .btn:active  { transform: scale(.96); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn-blue   { background: var(--blue);   color: #fff; }
+  .btn-blue:not(:disabled):hover   { box-shadow: 0 4px 14px rgba(26,111,196,.4); }
+  .btn-gray   { background: var(--surface2); color: var(--text); border: 1.5px solid var(--border); }
+  .btn-gray:not(:disabled):hover   { background: var(--border); }
+  .btn-red    { background: var(--red);    color: #fff; }
+  .btn-red:not(:disabled):hover    { box-shadow: 0 4px 14px rgba(214,48,49,.4); }
+  .btn-orange { background: var(--orange); color: #fff; }
+  .btn-orange:not(:disabled):hover { box-shadow: 0 4px 14px rgba(230,126,34,.4); }
+  .btn-green  { background: var(--green);  color: #fff; }
+  .btn-green:not(:disabled):hover  { box-shadow: 0 4px 14px rgba(26,158,92,.4); }
+  .btn-yellow { background: var(--yellow); color: #fff; }
+
+  /* ─── MỚI: STORAGE BOX CARD ─── */
+  #storage-card {
+    border: 2.5px solid var(--orange);
+    background: var(--orange-lt);
+    transition: border-color .3s, background .3s;
+  }
+  #storage-card.normal {
+    border-color: var(--border);
+    background: var(--surface);
+  }
+  #storage-card .card-head {
+    background: transparent;
+  }
+  #storage-card .card-head .icon { background: var(--orange-lt); }
+  #storage-card.normal .card-head .icon { background: var(--surface2); }
+
+  .storage-status {
+    font-size: 1rem; font-weight: 700;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .storage-status.alert  { background: var(--orange-lt); color: var(--orange); }
+  .storage-status.ok     { background: var(--green-lt);  color: var(--green); }
+  .storage-status.locked { background: var(--surface2);  color: var(--text-muted); }
+
+  .rfid-hint {
+    font-size: .82rem; color: var(--text-muted);
+    text-align: center; margin-top: 8px;
+    padding: 6px 10px; background: var(--surface2);
+    border-radius: 8px;
+  }
+
+  /* LỊCH */
+  .schedule-list { display: flex; flex-direction: column; gap: 12px; }
+  .session-item {
+    border-radius: 12px; padding: 13px 16px;
+    display: flex; align-items: center; gap: 14px;
+    border: 2px solid transparent;
+    background: var(--surface2);
+    transition: border-color .2s, background .3s;
+  }
+  .session-item.active-session   { border-color: var(--blue);   background: var(--blue-lt); }
+  .session-item.done-session     { opacity: .55; }
+  .session-item.disabled-session { opacity: .4; }
+  .session-icon { font-size: 1.7rem; flex-shrink: 0; }
+  .session-info { flex: 1; }
+  .session-name { font-size: .95rem; font-weight: 700; }
+  .session-time { font-size: 1.05rem; font-weight: 800; color: var(--blue); }
+  .session-med  { font-size: .82rem; color: var(--text-muted); margin-top: 2px; }
+  .session-badge {
+    font-size: .75rem; font-weight: 700; padding: 4px 10px;
+    border-radius: 20px; white-space: nowrap;
+  }
+  .badge-on    { background: var(--green-lt);  color: var(--green); }
+  .badge-off   { background: var(--surface2);  color: var(--text-muted); border: 1px solid var(--border); }
+  .badge-done  { background: var(--blue-lt);   color: var(--blue); }
+  .badge-alarm { background: var(--red-lt);    color: var(--red);
+                 animation: badge-pulse 1s infinite alternate; }
+  @keyframes badge-pulse { from{background:var(--red-lt)} to{background:#f9b0b0} }
+
+  /* FORM LỊCH */
+  .form-sessions { display: flex; flex-direction: column; gap: 16px; }
+  .form-session { background: var(--surface2); border-radius: 12px; padding: 14px 16px; }
+  .form-session > label { font-size: .88rem; font-weight: 700; color: var(--blue); display: block; margin-bottom: 8px; }
+  .form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .form-row input[type=number] {
+    width: 70px; padding: 10px 6px; border-radius: 10px;
+    border: 2px solid var(--border); font-family: inherit;
+    font-size: 1.1rem; font-weight: 700; text-align: center;
+    color: var(--text); background: var(--surface);
+    transition: border-color .2s, background .3s;
+  }
+  .form-row input[type=number]:focus { border-color: var(--blue); outline: none; }
+  .form-row .colon { font-size: 1.3rem; font-weight: 800; color: var(--text); }
+  .form-row input[type=text] {
+    flex: 1; min-width: 150px; padding: 10px 12px;
+    border-radius: 10px; border: 2px solid var(--border);
+    font-family: inherit; font-size: .9rem;
+    color: var(--text); background: var(--surface);
+    transition: border-color .2s, background .3s;
+  }
+  .form-row input[type=text]:focus { border-color: var(--blue); outline: none; }
+
+  .toggle-wrap { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .toggle-wrap span { font-size: .88rem; color: var(--text-muted); }
+  .switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+  .switch input { display: none; }
+  .slider {
+    position: absolute; inset: 0; border-radius: 28px;
+    background: var(--border); cursor: pointer; transition: .3s;
+  }
+  .slider::before {
+    content: ''; position: absolute;
+    width: 22px; height: 22px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: .3s;
+  }
+  .switch input:checked + .slider { background: var(--green); }
+  .switch input:checked + .slider::before { transform: translateX(24px); }
+
+  .save-btn { width: 100%; margin-top: 8px; padding: 15px; font-size: 1.05rem; border-radius: 12px; }
+
+  /* ═══ CẢNH BÁO LOG — MỚI ═══ */
+  #warn-log-list { max-height: 260px; overflow-y: auto; }
+  .warn-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px; border-radius: 10px; margin-bottom: 6px;
+    font-size: .88rem; line-height: 1.4;
+    border-left: 3px solid transparent;
+  }
+  .warn-item.wl-err    { background: var(--red-lt);    border-color: var(--red);    color: var(--text); }
+  .warn-item.wl-warn   { background: var(--orange-lt); border-color: var(--orange); color: var(--text); }
+  .warn-item.wl-yellow { background: var(--yellow-lt); border-color: var(--yellow); color: var(--text); }
+  .warn-item-time  { font-size: .78rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; margin-top: 1px; }
+  .warn-item-icon  { font-size: 1rem; flex-shrink: 0; }
+  .warn-item-text  { flex: 1; font-weight: 600; }
+  .warn-item-val   { font-size: .8rem; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
+
+  /* LOG */
+  #log-list { max-height: 280px; overflow-y: auto; }
+  .log-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: .87rem;
+  }
+  .log-item:last-child { border-bottom: none; }
+  .log-time  { color: var(--text-muted); white-space: nowrap; font-size: .78rem; flex-shrink: 0; margin-top: 2px; }
+  .log-icon  { font-size: .95rem; flex-shrink: 0; }
+  .log-text  { flex: 1; line-height: 1.4; }
+  .log-ok    { color: var(--green); }
+  .log-warn  { color: var(--orange); }
+  .log-err   { color: var(--red); }
+  .log-info  { color: var(--text); }
+
+  /* RFID LOG */
+  #rfid-log { max-height: 280px; overflow-y: auto; }
+  .rfid-item {
+    display: flex; gap: 10px; padding: 9px 0;
+    border-bottom: 1px solid var(--border); font-size: .87rem;
+    align-items: flex-start;
+  }
+  .rfid-item:last-child { border-bottom: none; }
+  .rfid-time    { color: var(--text-muted); font-size: .78rem; white-space: nowrap; margin-top: 2px; flex-shrink: 0; }
+  .rfid-confirm { color: var(--green);  font-weight: 700; }
+  .rfid-open    { color: var(--orange); font-weight: 700; }
+  .rfid-deny    { color: var(--red);    font-weight: 700; }
+  .rfid-storage { color: var(--blue);   font-weight: 700; }
+
+  /* DATETIME BAR */
+  #datetime-bar {
+    background: var(--surface); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 13px 18px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px; flex-wrap: wrap; gap: 8px;
+    transition: background .3s;
+  }
+  #dt-time { font-size: 2rem; font-weight: 800; color: var(--blue); line-height: 1; }
+  #dt-date { font-size: .88rem; color: var(--text-muted); margin-top: 4px; }
+  #device-time { font-size: .82rem; color: var(--text-muted); text-align: right; }
+  #device-time strong { color: var(--text); font-weight: 700; display: block; font-size: .88rem; }
+
+  /* MQTT SETTINGS */
+  .mqtt-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .mqtt-row label { font-size: .85rem; font-weight: 700; width: 60px; flex-shrink: 0; color: var(--text-muted); }
+  .mqtt-row input {
+    flex: 1; min-width: 150px; padding: 9px 12px;
+    border-radius: 10px; border: 2px solid var(--border);
+    font-family: inherit; font-size: .9rem;
+    color: var(--text); background: var(--surface);
+    transition: border-color .2s, background .3s;
+  }
+  .mqtt-row input:focus { border-color: var(--blue); outline: none; }
+
+  .empty { text-align: center; color: var(--text-muted); padding: 22px; font-size: .88rem; }
+
+  /* Badge count */
+  .warn-count-badge {
+    background: var(--orange); color: #fff;
+    border-radius: 50%; width: 20px; height: 20px;
+    font-size: .72rem; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: 6px; vertical-align: middle;
+  }
+
+  /* section spacer */
+  .mb16 { margin-bottom: 16px; }
+
+  /* ═══════════════════ FOOTER ═══════════════════ */
+  footer {
+    text-align: center;
+    padding: 24px 20px 16px;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    margin-top: 30px;
+    background: var(--surface);
+    border-radius: var(--radius) var(--radius) 0 0;
+    transition: background .3s, border-color .3s, color .3s;
+  }
+  footer a {
+    color: var(--blue);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header>
+  <h1>💊 Hệ thống nhắc uống thuốc thông minh cho người cao tuổi
+    <span>Sinh viên thực hiện: Lê Phước Thiện - CTU - B2304668</span>
+  </h1>
+  <div class="header-right">
+    <button id="theme-btn" onclick="toggleTheme()">
+      <span id="theme-icon">🌙</span>
+      <span id="theme-label">Tối</span>
+    </button>
+    <div id="conn-badge">
+      <div id="conn-dot"></div>
+      <span id="conn-label">Đang kết nối…</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- SOS BANNER -->
+  <div id="sos-banner">
+    🚨 KHẨN CẤP! ĐÃ BẤM NÚT SOS!
+    <p>Người thân cần hỗ trợ ngay lập tức!</p>
+    <button class="btn btn-gray" style="margin:12px auto 0;max-width:200px;flex:none"
+            onclick="sendCmd('sos_off')">✖ Tắt SOS</button>
+  </div>
+
+  <!-- DHT ERROR BANNER -->
+  <div id="dht-error-banner">
+    🔌 Cảm biến nhiệt độ/độ ẩm bị lỗi hoặc đứt kết nối — kiểm tra dây DHT11!
+  </div>
+
+  <!-- ══ MỚI: DHT WARNING BANNER với ghi chú RFID ══ -->
+  <div id="dht-warn-banner">
+    <div class="warn-title">⚠️ CẢNH BÁO: Môi trường bảo quản không an toàn!</div>
+    <div class="warn-detail" id="dht-warn-detail">Nhiệt độ hoặc độ ẩm vượt ngưỡng an toàn</div>
+    <div class="warn-action" id="dht-warn-threshold">
+      🌡️ Ngưỡng: Nhiệt độ ≥ 32°C hoặc Độ ẩm ≥ 80%
+    </div>
+    <div class="warn-rfid-note">
+      🪪 Quét thẻ RFID để mở hộp bảo quản và kiểm tra thuốc
+    </div>
+  </div>
+
+  <!-- DATETIME -->
+  <div id="datetime-bar">
+    <div>
+      <div id="dt-time">--:--:--</div>
+      <div id="dt-date">Đang cập nhật…</div>
+    </div>
+    <div id="device-time">
+      <strong id="dev-time-val">--:--</strong>
+      Giờ thiết bị · <span id="dev-date-val">--/--/----</span>
+    </div>
+  </div>
+
+  <!-- ROW 1: SENSOR + TRẠNG THÁI -->
+  <div class="grid-2 mb16">
+
+    <!-- SENSOR -->
+    <div class="card">
+      <div class="card-head">
+        <span class="icon">🌡️</span>
+        <h2>Nhiệt độ &amp; độ ẩm trong hộp thuốc</h2>
+      </div>
+      <div class="card-body">
+        <div class="sensor-row">
+          <div class="sensor-item" id="temp-card">
+            <div class="val" id="temp-val">--</div>
+            <div class="unit">°C — Nhiệt độ</div>
+          </div>
+          <div class="sensor-item" id="hum-card">
+            <div class="val" id="hum-val">--</div>
+            <div class="unit">% — Độ ẩm</div>
+          </div>
+        </div>
+        <div id="dht-warn-msg">
+          ⚠️ Nhiệt độ/Độ ẩm cao — Cần kiểm tra kho thuốc ngay!
+        </div>
+      </div>
+    </div>
+
+    <!-- TRẠNG THÁI HỘP -->
+    <div class="card">
+      <div class="card-head">
+        <span class="icon">📦</span>
+        <h2>Trạng thái hộp thuốc</h2>
+      </div>
+      <div class="card-body">
+        <div class="status-big" id="box-status-row">
+          <div class="dot dot-orange" id="box-dot"></div>
+          <span id="box-status-text">Chờ cập nhật…</span>
+        </div>
+        <div class="status-time" id="box-status-time"></div>
+        <div class="action-btns" style="margin-top:14px">
+          <button class="btn btn-blue"  onclick="sendCmd('servo_open')">🔓 Mở hộp</button>
+          <button class="btn btn-gray"  onclick="sendCmd('servo_close')">🔒 Đóng hộp</button>
+        </div>
+        <div class="action-btns" style="margin-top:10px">
+          <button class="btn btn-orange" style="font-size:.88rem" onclick="sendCmd('alarm_on')">🔔 Bật nhắc</button>
+          <button class="btn btn-gray"   style="font-size:.88rem" onclick="sendCmd('alarm_off')">🔕 Tắt nhắc</button>
+        </div>
+        <button class="btn btn-gray" style="width:100%;margin-top:10px;font-size:.88rem"
+                onclick="sendCmd('sync_request')">🔄 Đồng bộ ngay</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════ MỚI: HỘP BẢO QUẢN THUỐC (DHT Warning + RFID) ══════ -->
+  <div class="card mb16" id="storage-card">
+    <div class="card-head">
+      <span class="icon">🏠</span>
+      <h2>Hộp Bảo Quản Thuốc</h2>
+    </div>
+    <div class="card-body">
+
+      <div class="storage-status locked" id="storage-status-row">
+        <span>🔒</span>
+        <span id="storage-status-text">Điều kiện bình thường — Hộp đang khoá</span>
+      </div>
+
+      <!-- Hiển thị khi cảnh báo: nút mở + hướng dẫn RFID -->
+      <div id="storage-warn-block" style="display:none">
+        <div style="font-size:.9rem;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
+          ⚠️ Môi trường không an toàn cho thuốc. Quét thẻ RFID tại hộp hoặc nhấn nút dưới để mở kiểm tra và di chuyển thuốc đến nơi bảo quản phù hợp.
+        </div>
+        <div class="action-btns">
+          <button class="btn btn-yellow" onclick="sendCmd('storage_open')">
+            🪪 Mở hộp bảo quản (Web)
+          </button>
+          <button class="btn btn-gray" onclick="sendCmd('storage_close')">
+            🔒 Đóng lại
+          </button>
+        </div>
+        <div class="rfid-hint" style="margin-top:8px">
+          📌 Hoặc quét thẻ RFID hợp lệ trực tiếp tại thiết bị để mở hộp bảo quản
+        </div>
+      </div>
+
+      <!-- Lịch sử RFID mở hộp bảo quản -->
+      <div id="storage-rfid-section" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--text-muted);margin-bottom:8px">
+          🪪 LỊCH SỬ MỞ HỘP BẢO QUẢN
+        </div>
+        <div id="storage-rfid-log"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LỊCH UỐNG THUỐC -->
+  <div class="card mb16">
+    <div class="card-head">
+      <span class="icon">📅</span>
+      <h2>Lịch uống thuốc hôm nay</h2>
+    </div>
+    <div class="card-body">
+      <div class="schedule-list" id="schedule-display">
+        <div class="empty">Chưa nhận được lịch từ thiết bị…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHỈNH LỊCH -->
+  <div class="card mb16">
+    <div class="card-head">
+      <span class="icon">⚙️</span>
+      <h2>Cài đặt lịch uống thuốc</h2>
+    </div>
+    <div class="card-body">
+      <div class="form-sessions">
+        <div class="form-session">
+          <label>🌅 Buổi Sáng</label>
+          <div class="form-row">
+            <input type="number" id="s1-h" min="0" max="23" value="7">
+            <span class="colon">:</span>
+            <input type="number" id="s1-m" min="0" max="59" value="0">
+            <input type="text"   id="s1-med" placeholder="Tên thuốc buổi sáng" value="Vitamin C 500mg">
+          </div>
+          <div class="toggle-wrap">
+            <label class="switch"><input type="checkbox" id="s1-en" checked><span class="slider"></span></label>
+            <span>Bật nhắc buổi sáng</span>
+          </div>
+        </div>
+        <div class="form-session">
+          <label>☀️ Buổi Trưa</label>
+          <div class="form-row">
+            <input type="number" id="s2-h" min="0" max="23" value="12">
+            <span class="colon">:</span>
+            <input type="number" id="s2-m" min="0" max="59" value="0">
+            <input type="text"   id="s2-med" placeholder="Tên thuốc buổi trưa" value="Metformin 500mg">
+          </div>
+          <div class="toggle-wrap">
+            <label class="switch"><input type="checkbox" id="s2-en" checked><span class="slider"></span></label>
+            <span>Bật nhắc buổi trưa</span>
+          </div>
+        </div>
+        <div class="form-session">
+          <label>🌇 Buổi Chiều</label>
+          <div class="form-row">
+            <input type="number" id="s3-h" min="0" max="23" value="18">
+            <span class="colon">:</span>
+            <input type="number" id="s3-m" min="0" max="59" value="0">
+            <input type="text"   id="s3-med" placeholder="Tên thuốc buổi chiều" value="Omeprazole 20mg">
+          </div>
+          <div class="toggle-wrap">
+            <label class="switch"><input type="checkbox" id="s3-en" checked><span class="slider"></span></label>
+            <span>Bật nhắc buổi chiều</span>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-green save-btn" id="save-btn" onclick="saveSchedule()">
+        💾 Lưu lịch lên thiết bị
+      </button>
+    </div>
+  </div>
+
+  <!-- ROW 2: RFID LOG + ACTIVITY LOG -->
+  <div class="grid-2 mb16">
+    <div class="card">
+      <div class="card-head">
+        <span class="icon">🪪</span>
+        <h2>Lịch sử quét thẻ RFID</h2>
+      </div>
+      <div class="card-body" style="padding-top:8px">
+        <div id="rfid-log"><div class="empty">Chưa có lịch sử quét thẻ</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <span class="icon">📋</span>
+        <h2>Nhật ký hoạt động</h2>
+      </div>
+      <div class="card-body" style="padding-top:8px">
+        <div id="log-list"><div class="empty">Chưa có hoạt động nào</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MỚI: NHẬT KÝ CẢNH BÁO ══ -->
+  <div class="card mb16">
+    <div class="card-head">
+      <span class="icon">⚠️</span>
+      <h2>Nhật ký cảnh báo<span id="warn-count-badge" class="warn-count-badge" style="display:none">0</span></h2>
+    </div>
+    <div class="card-body" style="padding-top:8px">
+      <div id="warn-log-list">
+        <div class="empty">Chưa có cảnh báo nào — hệ thống hoạt động bình thường 🟢</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MQTT SETTINGS -->
+  <div class="card">
+    <div class="card-head">
+      <span class="icon">📡</span>
+      <h2>Cấu hình kết nối MQTT</h2>
+    </div>
+    <div class="card-body">
+      <div class="mqtt-row">
+        <label>Broker</label>
+        <input type="text" id="cfg-broker" value="">
+      </div>
+      <div class="mqtt-row">
+        <label>Port</label>
+        <input type="text" id="cfg-port" value="" style="max-width:100px">
+      </div>
+      <div class="mqtt-row">
+        <label>Topic</label>
+        <input type="text" id="cfg-topic" value="">
+      </div>
+      <button class="btn btn-blue" style="margin-top:4px" onclick="reconnectMQTT()">
+        🔌 Kết nối lại
+      </button>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer>
+  © 2026 Lê Phước Thiện - B2304668 - Trường Bách Khoa - Khoa Tự Động Hóa - Đại học Cần Thơ<br>
+  Đồ án học phần KC331: Hệ thống nhắc uống thuốc thông minh cho người cao tuổi
+</footer>
+
+<!-- ═══════════════════ SCRIPT ═══════════════════ -->
+<script>
+// ─────────────────────────────────────────────────
+// CONFIG (mặc định cho mạng LAN)
+// ─────────────────────────────────────────────────
+// Nếu chưa có cấu hình trong localStorage, dùng mặc định
+let BROKER = localStorage.getItem('mqtt_broker') || 'broker.hivemq.com';  // ← IP máy tính chạy Mosquitto
+let PORT   = parseInt(localStorage.getItem('mqtt_port'))   || 8884;
+let TOPIC  = localStorage.getItem('mqtt_topic')   || 'medbox_b2304668_pt_2026';
+
+// Ngưỡng cảnh báo nhiệt độ/độ ẩm — phải khớp với firmware (TEMP_WARN_C, HUM_WARN_PCT)
+// Đây CHỈ là giá trị hiển thị cho người dùng biết; quyết định cảnh báo thật sự
+// luôn đến từ field "dht_warn" mà thiết bị gửi lên qua topic /status, không tự tính lại ở web.
+const TEMP_WARN_C  = 32.0;
+const HUM_WARN_PCT = 80;
+
+const T = {
+  SENSOR:    () => `${TOPIC}/sensor`,
+  STATUS:    () => `${TOPIC}/status`,
+  SOS:       () => `${TOPIC}/sos`,
+  RFID_EVT:  () => `${TOPIC}/rfid`,
+  CMD:       () => `${TOPIC}/cmd`,
+  SCHEDULE:  () => `${TOPIC}/schedule`,
+  RFID_LIST: () => `${TOPIC}/rfid_list`,
+  ONLINE:    () => `${TOPIC}/online`,
+};
+
+// ─────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────
+let client      = null;
+let rfidLog     = [];
+let actLog      = [];
+let warnLog     = [];          // Nhật ký cảnh báo riêng
+let storageRFID = [];          // Lịch sử quét thẻ mở hộp bảo quản
+let dhtWarnActive  = false;    // Trạng thái cảnh báo DHT hiện tại (từ thiết bị)
+let dhtErrorActive = false;    // Trạng thái lỗi cảm biến hiện tại (từ thiết bị)
+let lastWarnTemp = '--';
+let lastWarnHum  = '--';
+
+let schedule = [
+  { id:1, icon:'🌅', name:'Buổi Sáng',  hour:7,  min:0, med:'Vitamin C 500mg',  enabled:true },
+  { id:2, icon:'☀️', name:'Buổi Trưa',  hour:12, min:0, med:'Metformin 500mg',  enabled:true },
+  { id:3, icon:'🌇', name:'Buổi Chiều', hour:18, min:0, med:'Omeprazole 20mg',  enabled:true },
+];
+
+// ─────────────────────────────────────────────────
+// ÂM THANH "LƯU THÀNH CÔNG" (Web Audio API — không cần file mp3)
+// ─────────────────────────────────────────────────
+// Dùng AudioContext để phát 2 tiếng "bíp" ngắn tăng cao độ, tạo cảm giác
+// "thành công" khác với việc chỉ đổi chữ trên nút. Được khởi tạo lười (lazy)
+// vì trình duyệt yêu cầu phải có tương tác người dùng (click) trước khi cho
+// phép AudioContext phát âm thanh — nút "Lưu" chính là tương tác đó.
+let audioCtx = null;
+
+function playSuccessChime() {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const now = audioCtx.currentTime;
+    // 2 nốt tăng cao độ: Đô (523Hz) -> Mi (659Hz), mỗi nốt ngắn ~120ms
+    const notes = [
+      { freq: 523.25, start: 0.00, dur: 0.12 },
+      { freq: 659.25, start: 0.14, dur: 0.16 },
+    ];
+    notes.forEach(n => {
+      const osc  = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      gain.gain.setValueAtTime(0, now + n.start);
+      gain.gain.linearRampToValueAtTime(0.25, now + n.start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.dur + 0.02);
+    });
+  } catch (e) {
+    console.warn('Không thể phát âm thanh thông báo:', e);
+  }
+}
+
+// ─────────────────────────────────────────────────
+// DARK / LIGHT THEME
+// ─────────────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('medbox_theme', theme);
+  const icon  = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (theme === 'dark') {
+    icon.textContent  = '☀️';
+    label.textContent = 'Sáng';
+  } else {
+    icon.textContent  = '🌙';
+    label.textContent = 'Tối';
+  }
+}
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+}
+
+// Khởi tạo theme từ localStorage
+(function() {
+  const saved = localStorage.getItem('medbox_theme');
+  if (saved) applyTheme(saved);
+  else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme('dark');
+  }
+})();
+
+// ─────────────────────────────────────────────────
+// ĐỒNG HỒ LOCAL
+// ─────────────────────────────────────────────────
+function tickClock() {
+  const now  = new Date();
+  const hh   = String(now.getHours()).padStart(2,'0');
+  const mm   = String(now.getMinutes()).padStart(2,'0');
+  const ss   = String(now.getSeconds()).padStart(2,'0');
+  const days = ['Chủ Nhật','Thứ Hai','Thứ Ba','Thứ Tư','Thứ Năm','Thứ Sáu','Thứ Bảy'];
+  document.getElementById('dt-time').textContent = `${hh}:${mm}:${ss}`;
+  document.getElementById('dt-date').textContent =
+    `${days[now.getDay()]}, ${now.getDate()}/${now.getMonth()+1}/${now.getFullYear()}`;
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+// ─────────────────────────────────────────────────
+// MQTT
+// ─────────────────────────────────────────────────
+function connectMQTT() {
+  const clientId = 'web_' + Math.random().toString(16).slice(2, 10);
+  // Tự chọn giao thức theo port: 8883/8884 (và các cổng TLS phổ biến) -> wss://, còn lại -> ws://
+  // Nếu cần ép buộc 1 trong 2, đổi PROTOCOL thành 'wss' hoặc 'ws' trực tiếp.
+  const TLS_PORTS = [8883, 8884, 443];
+  const protocol  = TLS_PORTS.includes(PORT) ? 'wss' : 'ws';
+  const url       = `${protocol}://${BROKER}:${PORT}/mqtt`;
+  setBadge('connecting');
+  addLog('📡', `Đang kết nối ${protocol}://${BROKER}:${PORT}…`, 'warn');
+
+  client = mqtt.connect(url, {
+    clientId,
+    clean: true,
+    reconnectPeriod: 5000,
+    connectTimeout:  10000,
+  });
+
+  client.on('connect', () => {
+    setBadge('online');
+    addLog('✅', 'Kết nối MQTT thành công', 'ok');
+    Object.values(T).forEach(fn => client.subscribe(fn(), { qos: 0 }));
+    sendCmd('sync_request');
+  });
+  client.on('reconnect', () => { setBadge('connecting'); addLog('🔄', 'Đang kết nối lại…', 'warn'); });
+  client.on('offline',   () => { setBadge('offline');    addLog('❌', 'Mất kết nối MQTT', 'err'); });
+  client.on('error',     e  => { addLog('⚠️', `Lỗi MQTT: ${e.message}`, 'err'); });
+  client.on('message', handleMessage);
+}
+
+function reconnectMQTT() {
+  // Lấy giá trị từ form
+  BROKER = document.getElementById('cfg-broker').value.trim() || BROKER;
+  PORT   = parseInt(document.getElementById('cfg-port').value)  || PORT;
+  TOPIC  = document.getElementById('cfg-topic').value.trim()   || TOPIC;
+  // Lưu vào localStorage
+  localStorage.setItem('mqtt_broker', BROKER);
+  localStorage.setItem('mqtt_port',   String(PORT));
+  localStorage.setItem('mqtt_topic',  TOPIC);
+  if (client) client.end(true);
+  connectMQTT();
+}
+
+// ─────────────────────────────────────────────────
+// XỬ LÝ TIN NHẮN ĐẾN
+// ─────────────────────────────────────────────────
+function handleMessage(topic, payload) {
+  let msg;
+  try { msg = JSON.parse(payload.toString()); } catch { return; }
+  if (topic === T.SENSOR())   handleSensor(msg);
+  if (topic === T.STATUS())   handleStatus(msg);
+  if (topic === T.SOS())      handleSOS(msg);
+  if (topic === T.RFID_EVT()) handleRFIDEvent(msg);
+  if (topic === T.SCHEDULE()) handleSchedule(msg);
+  if (topic === T.ONLINE())   handleOnline(msg);
+}
+
+function handleSensor(d) {
+  if (d.temp !== undefined) {
+    const t = parseFloat(d.temp);
+    document.getElementById('temp-val').textContent = isNaN(t) ? '--' : t.toFixed(1);
+    // Chỉ tô "dht-err" dựa vào việc giá trị là NaN (cảm biến chưa đọc được).
+    // KHÔNG tự ý tô "warn" ở đây nữa — màu cảnh báo nhiệt/ẩm do updateDHTWarnState()
+    // quyết định dựa trên field dht_warn mà thiết bị gửi, để tránh 2 nguồn ngưỡng lệch nhau.
+    document.getElementById('temp-card').classList.toggle('dht-err', isNaN(t));
+    if (!isNaN(t)) lastWarnTemp = t.toFixed(1);
+  }
+  if (d.hum !== undefined) {
+    const h = parseInt(d.hum);
+    document.getElementById('hum-val').textContent = isNaN(h) ? '--' : h;
+    document.getElementById('hum-card').classList.toggle('dht-err', isNaN(h));
+    if (!isNaN(h)) lastWarnHum = h;
+  }
+  if (d.time) document.getElementById('dev-time-val').textContent = d.time;
+  if (d.date) document.getElementById('dev-date-val').textContent = (d.day ? d.day + ' ' : '') + d.date;
+}
+
+function handleStatus(d) {
+  const dot  = document.getElementById('box-dot');
+  const text = document.getElementById('box-status-text');
+
+  if (d.box === 'open') {
+    dot.className = 'dot dot-orange'; text.textContent = '🔓 Hộp đang MỞ';
+    addLog('🔓', 'Hộp thuốc đang mở', 'warn');
+  } else if (d.box === 'locked') {
+    dot.className = 'dot dot-green'; text.textContent = '🔒 Hộp đã KHÓA an toàn';
+    addLog('🔒', 'Hộp thuốc đã đóng', 'ok');
+  }
+
+  if (d.dht_error !== undefined) {
+    dhtErrorActive = d.dht_error;
+    const banner = document.getElementById('dht-error-banner');
+    banner.style.display = d.dht_error ? '' : 'none';
+    const tc = document.getElementById('temp-card');
+    const hc = document.getElementById('hum-card');
+    tc.classList.toggle('dht-err', d.dht_error);
+    hc.classList.toggle('dht-err', d.dht_error);
+    if (d.dht_error) {
+      document.getElementById('temp-val').textContent = 'LOI';
+      document.getElementById('hum-val').textContent  = 'LOI';
+      addLog('🔌', 'Cảm biến DHT11 bị lỗi!', 'err');
+      addWarnLog('🔌', 'Cảm biến DHT11 bị lỗi hoặc đứt kết nối', 'wl-err',
+                 'Kiểm tra dây nối cảm biến DHT11 tại thiết bị');
+      // Cảm biến lỗi thì không còn dữ liệu tin cậy để cảnh báo môi trường —
+      // ẩn banner cảnh báo nhiệt/ẩm để khỏi rối giao diện với 2 banner cùng lúc.
+      updateDHTWarnState(false);
+    }
+  }
+
+  // Đặt sau khối dht_error để khi cả 2 field cùng về trong 1 message,
+  // dht_error luôn được xử lý trước (ẩn banner warn nếu đang lỗi).
+  if (d.dht_warn !== undefined && !dhtErrorActive) {
+    updateDHTWarnState(d.dht_warn, d.temp, d.hum);
+  }
+
+  document.getElementById('box-status-time').textContent = 'Cập nhật: ' + nowStr();
+}
+
+// ── CẬP NHẬT TRẠNG THÁI CẢNH BÁO DHT ──
+// Nguồn sự thật duy nhất cho việc "có đang cảnh báo môi trường hay không"
+// là field dht_warn do thiết bị gửi lên — web không tự tính lại ngưỡng.
+function updateDHTWarnState(isWarn, temp, hum) {
+  const t = temp ?? lastWarnTemp;
+  const h = hum  ?? lastWarnHum;
+
+  // Banner đầu trang
+  const warnBanner = document.getElementById('dht-warn-banner');
+  const warnDetail = document.getElementById('dht-warn-detail');
+  warnBanner.style.display = isWarn ? '' : 'none';
+
+  // Inline warn msg trong sensor card + tô màu 2 ô nhiệt độ / độ ẩm
+  document.getElementById('dht-warn-msg').style.display = isWarn ? '' : 'none';
+  document.getElementById('temp-card').classList.toggle('warn', isWarn);
+  document.getElementById('hum-card').classList.toggle('warn', isWarn);
+
+  // Storage card
+  const storageCard  = document.getElementById('storage-card');
+  const storageRow   = document.getElementById('storage-status-row');
+  const storageText  = document.getElementById('storage-status-text');
+  const warnBlock    = document.getElementById('storage-warn-block');
+  const rfidSection  = document.getElementById('storage-rfid-section');
+
+  if (isWarn) {
+    const parts = [];
+    if (t !== '--' && parseFloat(t) >= TEMP_WARN_C)  parts.push(`Nhiệt độ ${t}°C ≥ ${TEMP_WARN_C}°C`);
+    if (h !== '--' && parseInt(h)   >= HUM_WARN_PCT) parts.push(`Độ ẩm ${h}% ≥ ${HUM_WARN_PCT}%`);
+    const detail = parts.length ? parts.join(' · ') : `Nhiệt ${t}°C · Ẩm ${h}%`;
+    warnDetail.textContent = detail;
+
+    storageCard.classList.remove('normal');
+    storageRow.className  = 'storage-status alert';
+    storageText.textContent = `⚠️ Cảnh báo môi trường — ${detail}`;
+    warnBlock.style.display   = '';
+    rfidSection.style.display = storageRFID.length ? '' : 'none';
+
+    // Ghi vào nhật ký cảnh báo (chỉ khi trạng thái mới thay đổi)
+    if (!dhtWarnActive) {
+      addWarnLog('🌡️', 'Cảnh báo môi trường bảo quản thuốc!', 'wl-warn', detail);
+      addLog('⚠️', `Cảnh báo: ${detail}`, 'warn');
+    }
+  } else {
+    storageCard.classList.add('normal');
+    storageRow.className  = 'storage-status ok';
+    storageText.textContent = '✅ Điều kiện bình thường — Hộp đang khoá';
+    warnBlock.style.display   = 'none';
+
+    if (dhtWarnActive) {
+      addWarnLog('✅', 'Môi trường bảo quản trở về bình thường', 'wl-yellow',
+                 `Nhiệt ${t}°C · Ẩm ${h}%`);
+      addLog('✅', 'Cảnh báo DHT đã tắt — môi trường ổn', 'ok');
+    }
+  }
+
+  dhtWarnActive = isWarn;
+}
+
+function handleSOS(d) {
+  const banner = document.getElementById('sos-banner');
+  if (d.active) {
+    banner.style.display = '';
+    addLog('🚨', 'KHẨN CẤP! Nút SOS được bấm!', 'err');
+    addWarnLog('🚨', 'Nút SOS khẩn cấp được kích hoạt!', 'wl-err', 'Người thân cần hỗ trợ ngay lập tức');
+  } else {
+    banner.style.display = 'none';
+    addLog('✅', 'SOS đã tắt', 'ok');
+    addWarnLog('✅', 'SOS đã được tắt', 'wl-yellow', nowStr());
+  }
+}
+
+function handleRFIDEvent(d) {
+  let tagClass, tagText;
+
+  // ── Phát hiện quét thẻ mở hộp bảo quản ──
+  // Dùng trực tiếp field "session" mà firmware gửi lên (publishRFIDEvent(uid, "BAOQ", ...))
+  // thay vì suy luận qua biến trạng thái cục bộ dhtWarnActive ở web.
+  // Lý do: nếu mạng trễ hoặc dhtWarnActive ở web chưa kịp cập nhật đúng lúc sự kiện RFID
+  // tới, suy luận theo state cục bộ có thể phân loại sai loại sự kiện.
+  const isStorageScan = d.session === 'BAOQ';
+
+  if (d.session === '-' && !d.confirmed) {
+    tagClass = 'rfid-deny';    tagText = '❌ Thẻ không hợp lệ';
+  } else if (d.confirmed) {
+    tagClass = 'rfid-confirm'; tagText = '✅ Xác nhận uống thuốc';
+  } else if (isStorageScan) {
+    tagClass = 'rfid-storage'; tagText = '🏠 Mở hộp bảo quản';
+  } else {
+    tagClass = 'rfid-open';    tagText = '🔓 Đã mở hộp';
+  }
+
+  // Ghi vào rfid log chung
+  rfidLog.unshift({ time: d.time || nowStr(), uid: d.uid, session: d.session,
+                    med: d.med, tagClass, tagText });
+  if (rfidLog.length > 20) rfidLog.pop();
+  renderRFIDLog();
+
+  // Thẻ hợp lệ liên quan đến bảo quản → ghi vào log hộp bảo quản
+  if (isStorageScan && d.session !== '-') {
+    storageRFID.unshift({ time: d.time || nowStr(), uid: d.uid });
+    if (storageRFID.length > 10) storageRFID.pop();
+    renderStorageRFID();
+    document.getElementById('storage-rfid-section').style.display = '';
+    addWarnLog('🪪', `Quét thẻ RFID mở hộp bảo quản (UID: ${d.uid})`, 'wl-yellow',
+               `Kiểm tra thuốc lúc ${d.time || nowStr()}`);
+  }
+
+  const logMsg = d.confirmed
+    ? `Uống thuốc xác nhận: ${d.med} (${d.session})`
+    : `Quét thẻ ${d.uid} — ${tagText}`;
+  addLog('🪪', logMsg, d.confirmed ? 'ok' : d.session === '-' ? 'err' : 'warn');
+}
+
+function handleSchedule(d) {
+  if (!Array.isArray(d)) {
+    if (d.id >= 1 && d.id <= 3) {
+      const idx = schedule.findIndex(x => x.id === d.id);
+      if (idx >= 0) {
+        if (d.hour    !== undefined) schedule[idx].hour    = d.hour;
+        if (d.min     !== undefined) schedule[idx].min     = d.min;
+        if (d.med     !== undefined) schedule[idx].med     = d.med;
+        if (d.enabled !== undefined) schedule[idx].enabled = d.enabled;
+      }
+    }
+  } else {
+    d.forEach(s => {
+      const idx = schedule.findIndex(x => x.id === s.id);
+      if (idx < 0) return;
+      if (s.hour    !== undefined) schedule[idx].hour    = s.hour;
+      if (s.min     !== undefined) schedule[idx].min     = s.min;
+      if (s.med     !== undefined) schedule[idx].med     = s.med;
+      if (s.enabled !== undefined) schedule[idx].enabled = s.enabled;
+    });
+  }
+  renderScheduleDisplay();
+  updateFormFromSchedule();
+  addLog('📅', 'Lịch uống thuốc đã đồng bộ từ thiết bị', 'info');
+}
+
+function handleOnline(d) {
+  addLog('📡', `${d.device || 'Thiết bị'} đã online`, 'ok');
+}
+
+// ─────────────────────────────────────────────────
+// PUBLISH
+// ─────────────────────────────────────────────────
+function sendCmd(action) {
+  if (!client || !client.connected) {
+    addLog('⚠️', 'Chưa kết nối MQTT — không gửi được lệnh', 'err');
+    return;
+  }
+  client.publish(T.CMD(), JSON.stringify({ action }), { qos: 0 });
+  const labels = {
+    servo_open:    '🔓 Lệnh mở hộp thuốc',
+    servo_close:   '🔒 Lệnh đóng hộp thuốc',
+    alarm_on:      '🔔 Bật chuông nhắc',
+    alarm_off:     '🔕 Tắt chuông nhắc',
+    sos_off:       '✅ Lệnh tắt SOS',
+    sync_request:  '🔄 Yêu cầu đồng bộ',
+    get_schedule:  '📅 Lấy lịch thuốc',
+    storage_open:  '🏠 Mở hộp bảo quản (Web)',
+    storage_close: '🔒 Đóng hộp bảo quản',
+  };
+  addLog('📤', labels[action] || `Lệnh: ${action}`, 'warn');
+  // Ghi nhận vào warn log nếu là lệnh storage
+  if (action === 'storage_open') {
+    addWarnLog('🏠', 'Mở hộp bảo quản từ Web Dashboard', 'wl-yellow',
+               `Lúc ${nowStr()} — do cảnh báo môi trường`);
+  }
+}
+
+function saveSchedule() {
+  if (!client || !client.connected) { addLog('⚠️', 'Chưa kết nối MQTT', 'err'); return; }
+  const payload = [1,2,3].map(n => ({
+    id:      n,
+    hour:    clamp(parseInt(document.getElementById(`s${n}-h`).value),   0, 23),
+    min:     clamp(parseInt(document.getElementById(`s${n}-m`).value),   0, 59),
+    med:     document.getElementById(`s${n}-med`).value.trim() || `Thuoc ${n}`,
+    enabled: document.getElementById(`s${n}-en`).checked,
+  }));
+  payload.forEach(s => {
+    const idx = schedule.findIndex(x => x.id === s.id);
+    if (idx >= 0) Object.assign(schedule[idx], s);
+  });
+  client.publish(T.SCHEDULE(), JSON.stringify(payload), { qos: 0 });
+  addLog('💾', 'Đã gửi lịch mới lên thiết bị', 'ok');
+  renderScheduleDisplay();
+
+  // MỚI: phát âm thanh "còi thành công" ngay khi người dùng bấm Lưu.
+  // (Việc lưu thực sự chỉ hoàn tất khi thiết bị nhận và xác nhận qua MQTT,
+  // nhưng vì publish tới broker công khai là tức thời và không có cơ chế
+  // ACK riêng ở tầng ứng dụng, ta phát âm thanh phản hồi ngay để trải
+  // nghiệm mượt — giống với việc thiết bị cũng tự kêu còi khi nhận lịch.)
+  playSuccessChime();
+
+  const btn = document.getElementById('save-btn');
+  btn.textContent = '✅ Đã lưu!';
+  setTimeout(() => { btn.textContent = '💾 Lưu lịch lên thiết bị'; }, 2500);
+}
+
+// ─────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────
+function renderScheduleDisplay() {
+  const now    = new Date();
+  const curMin = now.getHours() * 60 + now.getMinutes();
+  const html = schedule.map(s => {
+    const sMin  = s.hour * 60 + s.min;
+    const isNow = curMin >= sMin && curMin < sMin + 60 && s.enabled;
+    const isPast= sMin + 60 <= curMin;
+    const isOff = !s.enabled;
+    let badge='', extra='';
+    if (isOff)        { badge='<span class="session-badge badge-off">TẮT</span>';          extra='disabled-session'; }
+    else if (isNow)   { badge='<span class="session-badge badge-alarm">⏰ Đến giờ!</span>'; extra='active-session'; }
+    else if (isPast)  { badge='<span class="session-badge badge-done">✔ Đã qua</span>';    extra='done-session'; }
+    else              { badge='<span class="session-badge badge-on">Sắp tới</span>'; }
+    return `<div class="session-item ${extra}">
+      <div class="session-icon">${s.icon}</div>
+      <div class="session-info">
+        <div class="session-name">${s.name}</div>
+        <div class="session-time">${String(s.hour).padStart(2,'0')}:${String(s.min).padStart(2,'0')}</div>
+        <div class="session-med">${s.med}</div>
+      </div>
+      ${badge}
+    </div>`;
+  }).join('');
+  document.getElementById('schedule-display').innerHTML = html || '<div class="empty">Chưa có lịch</div>';
+}
+
+function updateFormFromSchedule() {
+  [0,1,2].forEach(i => {
+    const n = i+1;
+    document.getElementById(`s${n}-h`).value    = schedule[i].hour;
+    document.getElementById(`s${n}-m`).value    = String(schedule[i].min).padStart(2,'0');
+    document.getElementById(`s${n}-med`).value  = schedule[i].med;
+    document.getElementById(`s${n}-en`).checked = schedule[i].enabled;
+  });
+}
+
+function renderRFIDLog() {
+  if (!rfidLog.length) {
+    document.getElementById('rfid-log').innerHTML = '<div class="empty">Chưa có lịch sử quét thẻ</div>';
+    return;
+  }
+  document.getElementById('rfid-log').innerHTML = rfidLog.map(r => `
+    <div class="rfid-item">
+      <span class="rfid-time">${r.time}</span>
+      <div>
+        <span class="${r.tagClass}">${r.tagText}</span><br>
+        <span style="font-size:.78rem;color:var(--text-muted)">
+          UID: ${r.uid}
+          ${r.session && r.session !== '-' ? ' · ' + r.session : ''}
+          ${r.med     && r.med     !== '-' ? ' · ' + r.med     : ''}
+        </span>
+      </div>
+    </div>`).join('');
+}
+
+function renderStorageRFID() {
+  const el = document.getElementById('storage-rfid-log');
+  el.innerHTML = storageRFID.map(r => `
+    <div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:.85rem">
+      <span style="color:var(--text-muted);font-size:.78rem;white-space:nowrap">${r.time}</span>
+      <span style="color:var(--blue);font-weight:700">🏠 Mở hộp bảo quản</span>
+      <span style="color:var(--text-muted);font-size:.78rem">UID: ${r.uid}</span>
+    </div>`).join('');
+}
+
+// ─────────────────────────────────────────────────
+// NHẬT KÝ CẢNH BÁO — MỚI
+// ─────────────────────────────────────────────────
+function addWarnLog(icon, text, cls, detail='') {
+  warnLog.unshift({ icon, text, cls, detail, time: nowStr() });
+  if (warnLog.length > 30) warnLog.pop();
+  renderWarnLog();
+}
+
+function renderWarnLog() {
+  const badge = document.getElementById('warn-count-badge');
+  if (warnLog.length > 0) {
+    badge.style.display = '';
+    badge.textContent   = warnLog.length > 99 ? '99+' : warnLog.length;
+  } else {
+    badge.style.display = 'none';
+  }
+
+  if (!warnLog.length) {
+    document.getElementById('warn-log-list').innerHTML =
+      '<div class="empty">Chưa có cảnh báo nào — hệ thống hoạt động bình thường 🟢</div>';
+    return;
+  }
+  document.getElementById('warn-log-list').innerHTML = warnLog.map(w => `
+    <div class="warn-item ${w.cls}">
+      <span class="warn-item-time">${w.time}</span>
+      <span class="warn-item-icon">${w.icon}</span>
+      <div class="warn-item-text">
+        ${w.text}
+        ${w.detail ? `<div class="warn-item-val">${w.detail}</div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+// ─────────────────────────────────────────────────
+// ACTIVITY LOG
+// ─────────────────────────────────────────────────
+function addLog(icon, text, type) {
+  actLog.unshift({ icon, text, type, time: nowStr() });
+  if (actLog.length > 40) actLog.pop();
+  const html = actLog.map(l => {
+    const cls = l.type === 'ok' ? 'log-ok' : l.type === 'err' ? 'log-err' : l.type === 'warn' ? 'log-warn' : 'log-info';
+    return `<div class="log-item">
+      <span class="log-time">${l.time}</span>
+      <span class="log-icon">${l.icon}</span>
+      <span class="log-text ${cls}">${l.text}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('log-list').innerHTML = html || '<div class="empty">Chưa có hoạt động</div>';
+}
+
+// ─────────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────────
+function setBadge(state) {
+  document.getElementById('conn-dot').className   = state;
+  document.getElementById('conn-label').textContent =
+    state === 'online' ? 'Đã kết nối' : state === 'offline' ? 'Mất kết nối' : 'Đang kết nối…';
+}
+function nowStr() {
+  const n = new Date();
+  return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+}
+function clamp(v, lo, hi) { return isNaN(v) ? lo : Math.max(lo, Math.min(hi, v)); }
+
+// ─────────────────────────────────────────────────
+// KHỞI ĐỘNG
+// ─────────────────────────────────────────────────
+// Điền cấu hình MQTT từ localStorage vào form
+document.getElementById('cfg-broker').value = BROKER;
+document.getElementById('cfg-port').value   = String(PORT);
+document.getElementById('cfg-topic').value  = TOPIC;
+
+setInterval(renderScheduleDisplay, 60000);
+renderScheduleDisplay();
+connectMQTT();
+</script>
+</body>
+</html>
